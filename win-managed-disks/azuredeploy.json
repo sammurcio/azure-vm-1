@@ -12,14 +12,16 @@
     },
     "vmSize": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "defaultValue": "Standard_A2_v2"
     },
     "vmCount": {
       "type": "int",
       "minValue": 1,
       "metadata": {
         "description": "Number of VMs to be deployed (Min=1)"
-      }
+      },
+      "defaultValue": 2
     },
     "windowsOSVersion": {
       "type": "string",
@@ -30,7 +32,8 @@
       ],
       "metadata": {
         "description": "The Windows version for the VM. This will pick a fully patched image of this given Windows version. Allowed values: 2008-R2-SP1, 2012-Datacenter, 2012-R2-Datacenter."
-      }
+      },
+      "defaultValue": "2016-Datacenter"
     },
     "workloadTag": {
       "type": "string",

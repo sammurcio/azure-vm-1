@@ -1,0 +1,7 @@
+{
+  "itemDisplayName": "Deployment of Windows VMs with Managed Disks and Availabitiy Set",
+  "description": "This template allows you to deploy multiple Windows VMs with managed OS and data disks, using the latest patched version. Deploys the VMs with public IPs for demo use.",
+  "summary": "2 VMs  - managed disks and availability set, public IPs",
+  "githubUsername": "sammurcio",
+  "dateUpdated": "2017-02-28"
+}
