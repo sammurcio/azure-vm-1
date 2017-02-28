@@ -2,79 +2,127 @@
   "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "adminUsername": {
+    "namePrefix": {
       "type": "string",
+      "minLength": 3,
+      "maxLength": 13,
       "metadata": {
-        "description": "Username for the Virtual Machine."
+        "description": "VM naming prefix, also used for each new resource created. 3-char min, 13-char max, lowercase alphanumeric"
       }
     },
-    "adminPassword": {
-      "type": "securestring",
-      "metadata": {
-        "description": "Password for the Virtual Machine."
-      }
-    },
-    "dnsLabelPrefix": {
+    "vmSize": {
       "type": "string",
+      "minLength": 1
+    },
+    "vmCount": {
+      "type": "int",
+      "minValue": 1,
       "metadata": {
-        "description": "Unique DNS Name for the Public IP used to access the Virtual Machine."
+        "description": "Number of VMs to be deployed (Min=1)"
       }
     },
     "windowsOSVersion": {
       "type": "string",
-      "defaultValue": "2016-Datacenter",
       "allowedValues": [
         "2008-R2-SP1",
-        "2012-Datacenter",
         "2012-R2-Datacenter",
-        "2016-Nano-Server",
-        "2016-Datacenter-with-Containers",
         "2016-Datacenter"
       ],
       "metadata": {
-        "description": "The Windows version for the VM. This will pick a fully patched image of this given Windows version."
+        "description": "The Windows version for the VM. This will pick a fully patched image of this given Windows version. Allowed values: 2008-R2-SP1, 2012-Datacenter, 2012-R2-Datacenter."
+      }
+    },
+    "workloadTag": {
+      "type": "string",
+      "metadata": {
+        "description": "Workload description tag to assign to VMs"
+      }
+    },
+    "environmentTag": {
+      "type": "string",
+      "metadata": {
+        "description": "Environment name tag to assign to VMs"
+      }
+    },
+    "vmDataDiskSize": {
+      "type": "int",
+      "minValue": 128,
+      "maxValue": 1023,
+      "metadata": {
+        "description": "Size of each data disk in GB on each S2D VM (Min=128, Max=1023)"
+      },
+      "defaultValue": 1023
+    },
+    "localAdminUsername": {
+      "type": "string",
+      "minLength": 1,
+      "metadata": {
+        "description": "Local Administrator username on all VMs"
+      }
+    },
+    "localAdminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Local Administrator password on all VMs"
       }
     }
   },
   "variables": {
-    "storageAccountName": "[concat(uniquestring(resourceGroup().id), 'sawinvm')]",
-    "nicName": "myVMNic",
+    "vmNamePrefix": "[tolower(parameters('namePrefix'))]",
+    "vmNamePrefixInfix": "[replace(variables('vmNamePrefix'), '-', '')]",
+    "availabilitySetName": "[concat(variables('vmNamePrefixInfix'), '-as')]",
+    "storageAccountType": "Standard_LRS",
+    "timeZone": "Eastern Standard Time",
+    "imageReference": {
+      "publisher": "MicrosoftWindowsServer",
+      "offer": "WindowsServer",
+      "sku": "[parameters('windowsOSVersion')]",
+      "version": "latest"
+    },
+    "virtualNetworkName": "vNet0",
     "addressPrefix": "10.0.0.0/16",
-    "subnetName": "Subnet",
+    "subnetName": "Subnet0",
     "subnetPrefix": "10.0.0.0/24",
-    "publicIPAddressName": "myPublicIP",
-    "vmName": "SimpleWinVM",
-    "virtualNetworkName": "MyVNET",
-    "subnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('subnetName'))]"
+    "subnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('subnetName'))]",
+    "availsetApi": "2016-04-30-preview",
+    "storageApi": "2016-01-01",
+    "resourcesApi": "2016-09-01",
+    "computeApi": "2016-04-30-preview",
+    "networkApi": "2016-03-30",
+    "resourceApi": "2015-01-01"
   },
   "resources": [
     {
-      "type": "Microsoft.Storage/storageAccounts",
-      "name": "[variables('storageAccountName')]",
-      "apiVersion": "2016-01-01",
+      "type": "Microsoft.Compute/availabilitySets",
+      "name": "[variables('availabilitySetName')]",
+      "apiVersion": "[variables('availsetApi')]",
       "location": "[resourceGroup().location]",
-      "sku": {
-        "name": "Standard_LRS"
-      },
-      "kind": "Storage",
-      "properties": {}
+      "properties": {
+        "platformFaultDomainCount": 3,
+        "platformUpdateDomainCount": "[add(parameters('vmCount'), 2)]",
+        "managed": true
+      }
     },
     {
-      "apiVersion": "2016-03-30",
       "type": "Microsoft.Network/publicIPAddresses",
-      "name": "[variables('publicIPAddressName')]",
+      "name": "[concat(variables('vmNamePrefixInfix'), copyindex(), '-pip0')]",
+      "apiVersion": "[variables('networkApi')]",
       "location": "[resourceGroup().location]",
+      "copy": {
+        "name": "pipLoop",
+        "count": "[parameters('vmCount')]"
+      },
       "properties": {
         "publicIPAllocationMethod": "Dynamic",
         "dnsSettings": {
-          "domainNameLabel": "[parameters('dnsLabelPrefix')]"
+          "domainNameLabel": "[concat(variables('vmNamePrefixInfix'), copyindex(), 'public')]"
         }
       }
     },
     {
-      "apiVersion": "2016-03-30",
       "type": "Microsoft.Network/virtualNetworks",
       "name": "[variables('virtualNetworkName')]",
+      "apiVersion": "2016-03-30",
       "location": "[resourceGroup().location]",
       "properties": {
         "addressSpace": {
@@ -93,22 +141,26 @@
       }
     },
     {
-      "apiVersion": "2016-03-30",
       "type": "Microsoft.Network/networkInterfaces",
-      "name": "[variables('nicName')]",
+      "name": "[concat(variables('vmNamePrefixInfix'), copyindex(), '-nic0')]",
+      "apiVersion": "[variables('networkApi')]",
       "location": "[resourceGroup().location]",
+      "copy": {
+        "name": "nicLoop",
+        "count": "[parameters('vmCount')]"
+      },
       "dependsOn": [
-        "[resourceId('Microsoft.Network/publicIPAddresses/', variables('publicIPAddressName'))]",
+        "pipLoop",
         "[resourceId('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
       ],
       "properties": {
         "ipConfigurations": [
           {
-            "name": "ipconfig1",
+            "name": "[concat(variables('vmNamePrefixInfix'), copyIndex(), '-ip0')]",
             "properties": {
               "privateIPAllocationMethod": "Dynamic",
               "publicIPAddress": {
-                "id": "[resourceId('Microsoft.Network/publicIPAddresses',variables('publicIPAddressName'))]"
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', concat(variables('vmNamePrefixInfix'), copyindex(), '-pip0'))]"
               },
               "subnet": {
                 "id": "[variables('subnetRef')]"
@@ -119,53 +171,68 @@
       }
     },
     {
-      "apiVersion": "2016-04-30-preview",
       "type": "Microsoft.Compute/virtualMachines",
-      "name": "[variables('vmName')]",
+      "name": "[concat(variables('vmNamePrefix'), copyIndex())]",
+      "apiVersion": "[variables('computeApi')]",
       "location": "[resourceGroup().location]",
+      "tags": {
+        "Resource Type": "Virtual Machine",
+        "Workload": "[parameters('workloadTag')]",
+        "Environment": "[parameters('environmentTag')]"
+      },
+      "copy": {
+        "name": "virtualMachineLoop",
+        "count": "[parameters('vmCount')]"
+      },
       "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))]",
-        "[resourceId('Microsoft.Network/networkInterfaces/', variables('nicName'))]"
+        "[resourceId('Microsoft.Compute/availabilitySets', variables('availabilitySetName'))]",
+        "nicLoop"
       ],
       "properties": {
+        "availabilitySet": {
+          "id": "[resourceId('Microsoft.Compute/availabilitySets', variables('availabilitySetName'))]"
+        },
         "hardwareProfile": {
-          "vmSize": "Standard_A2"
+          "vmSize": "[parameters('vmSize')]"
         },
         "osProfile": {
-          "computerName": "[variables('vmName')]",
-          "adminUsername": "[parameters('adminUsername')]",
-          "adminPassword": "[parameters('adminPassword')]"
+          "computerName": "[concat(variables('vmNamePrefix'), copyIndex())]",
+          "adminUsername": "[parameters('localAdminUsername')]",
+          "adminPassword": "[parameters('localAdminPassword')]",
+          "windowsConfiguration": {
+            "enableAutomaticUpdates": true,
+            "timeZone": "[variables('timeZone')]"
+          }
         },
         "storageProfile": {
-          "imageReference": {
-            "publisher": "MicrosoftWindowsServer",
-            "offer": "WindowsServer",
-            "sku": "[parameters('windowsOSVersion')]",
-            "version": "latest"
-          },
+          "imageReference": "[variables('imageReference')]",
           "osDisk": {
-            "createOption": "FromImage"
+            "name": "[concat(variables('vmNamePrefixInfix'), copyIndex(), '-osdisk')]",
+            "createOption": "FromImage",
+            "caching": "ReadWrite",
+            "managedDisk": {
+              "storageAccountType": "[variables('storageAccountType')]"
+            }
           },
           "dataDisks": [
             {
-              "diskSizeGB": "1023",
-              "lun": 0,
-              "createOption": "Empty"
+              "lun": 1,
+              "name": "[concat(variables('vmNamePrefixInfix'), copyindex(), '-data0')]",
+              "createOption": "Empty",
+              "caching": "None",
+              "diskSizeGB": "[parameters('vmDataDiskSize')]",
+              "managedDisk": {
+                "storageAccountType": "[variables('storageAccountType')]"
+              }
             }
           ]
         },
         "networkProfile": {
           "networkInterfaces": [
             {
-              "id": "[resourceId('Microsoft.Network/networkInterfaces',variables('nicName'))]"
+              "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('vmNamePrefixInfix'), copyIndex(), '-nic0'))]"
             }
           ]
-        },
-        "diagnosticsProfile": {
-          "bootDiagnostics": {
-            "enabled": "true",
-            "storageUri": "[reference(resourceId('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))).primaryEndpoints.blob]"
-          }
         }
       }
     }
@@ -173,7 +240,7 @@
   "outputs": {
     "hostname": {
       "type": "string",
-      "value": "[reference(variables('publicIPAddressName')).dnsSettings.fqdn]"
+      "value": "[variables('virtualNetworkName')]"
     }
   }
 }
